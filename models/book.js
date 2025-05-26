@@ -15,7 +15,7 @@ const bookSchema = new mongoose.Schema(
       required: false,
     },
     coverImage: {
-      type: String,
+      type: String, // Stores the path to the image, e.g., "uploads/coverImage-12345.jpg"
       required: false,
     },
   },
