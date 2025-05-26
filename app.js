@@ -40,6 +40,11 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/uploads", express.static(UPLOADS_DIR));
 app.use("/books", booksRouter);
 
+app.get("/", (req, res) => {
+  const indexPath = path.join(__dirname, "index.html");
+  res.sendFile(indexPath);
+});
+
 app.use((req, res) => {
   console.warn(`[App] 404 Not Found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({ error: "Route not found" });

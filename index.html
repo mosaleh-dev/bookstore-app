@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bookstore CRUD</title>
+    <style>
+      body {
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          Oxygen,
+          Ubuntu,
+          Cantarell,
+          "Open Sans",
+          "Helvetica Neue",
+          sans-serif;
+        margin: 20px;
+        background-color: #f4f4f9;
+        color: #333;
+      }
+      .container {
+        max-width: 800px;
+        margin: auto;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2 {
+        color: #333;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+      }
+      form {
+        margin-bottom: 30px;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        background-color: #f9f9f9;
+      }
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+      input[type="text"],
+      input[type="number"],
+      input[type="file"],
+      button {
+        width: calc(100% - 22px);
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+      input[type="file"] {
+        padding: 3px;
+      }
+      button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        font-size: 1em;
+        transition: background-color 0.2s ease-in-out;
+      }
+      button:hover {
+        background-color: #0056b3;
+      }
+      #cancelEditButton {
+        background-color: #6c757d;
+      }
+      #cancelEditButton:hover {
+        background-color: #545b62;
+      }
+      .delete-btn {
+        background-color: #dc3545;
+      }
+      .delete-btn:hover {
+        background-color: #c82333;
+      }
+      #bookList ul {
+        list-style-type: none;
+        padding: 0;
+      }
+      #bookList li {
+        border: 1px solid #eee;
+        padding: 15px;
+        margin-bottom: 10px;
+        border-radius: 5px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        background-color: #fff;
+      }
+      #bookList img {
+        max-width: 60px;
+        max-height: 80px;
+        margin-right: 15px;
+        border: 1px solid #eee;
+        object-fit: cover;
+      }
+      .message {
+        padding: 12px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+        font-size: 0.95em;
+      }
+      .success {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .error {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+      .book-details {
+        flex-grow: 1;
+        min-width: 200px;
+      }
+      .book-actions button {
+        font-size: 0.9em;
+        padding: 6px 12px;
+        margin-left: 5px;
+        width: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Bookstore Management</h1>
+
+      <div id="messageArea"></div>
+
+      <h2>Add / Edit Book</h2>
+      <form id="bookForm" enctype="multipart/form-data">
+        <input type="hidden" id="bookId" name="bookId" />
+        <div>
+          <label for="title">Title:</label>
+          <input type="text" id="title" name="title" required />
+        </div>
+        <div>
+          <label for="author">Author:</label>
+          <input type="text" id="author" name="author" required />
+        </div>
+        <div>
+          <label for="year">Year (Optional):</label>
+          <input type="number" id="year" name="year" placeholder="e.g., 1990" />
+        </div>
+        <div>
+          <label for="coverImage">Cover Image (Optional):</label>
+          <input
+            type="file"
+            id="coverImage"
+            name="coverImage"
+            accept="image/png, image/jpeg, image/gif"
+          />
+          <small
+            id="currentImageText"
+            style="display: block; margin-top: 5px"
+          ></small>
+        </div>
+        <button type="submit" id="submitButton">Add Book</button>
+        <button type="button" id="cancelEditButton" style="display: none">
+          Cancel Edit
+        </button>
+      </form>
+
+      <h2>Book List</h2>
+      <div id="bookList">
+        <p>Loading books...</p>
+        <ul></ul>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", () => {
+        const API_BASE_URL = "http://localhost:3000";
+        const booksApiUrl = `${API_BASE_URL}/books`;
+
+        const bookForm = document.getElementById("bookForm");
+        const bookIdInput = document.getElementById("bookId");
+        const titleInput = document.getElementById("title");
+        const authorInput = document.getElementById("author");
+        const yearInput = document.getElementById("year");
+        const coverImageInput = document.getElementById("coverImage");
+        const currentImageText = document.getElementById("currentImageText");
+        const submitButton = document.getElementById("submitButton");
+        const cancelEditButton = document.getElementById("cancelEditButton");
+        const bookListUl = document.querySelector("#bookList ul");
+        const messageArea = document.getElementById("messageArea");
+
+        function showMessage(message, type = "success") {
+          messageArea.innerHTML = `<div class="message ${type}">${message}</div>`;
+          setTimeout(() => {
+            messageArea.innerHTML = "";
+          }, 4000);
+        }
+
+        function renderBooks(books) {
+          bookListUl.innerHTML = "";
+          if (books.length === 0) {
+            bookListUl.innerHTML =
+              "<li>No books found. Add one using the form above!</li>";
+            return;
+          }
+          books.forEach((book) => {
+            const li = document.createElement("li");
+            let coverImageHtml = book.coverImage
+              ? `<img src="${API_BASE_URL}/${book.coverImage}" alt="${book.title} cover">`
+              : `<div style="width:60px; height:80px; background:#eee; margin-right:15px; text-align:center; line-height:80px; font-size:0.8em; color:#aaa;">No Image</div>`;
+
+            li.innerHTML = `
+              ${coverImageHtml}
+              <div class="book-details">
+                <strong>${book.title}</strong><br>
+                Author: ${book.author || "N/A"}<br>
+                ${book.year ? `Year: ${book.year}` : ""}
+              </div>
+              <div class="book-actions">
+                <button class="edit-btn" data-id="${book._id}">Edit</button>
+                <button class="delete-btn" data-id="${book._id}">Delete</button>
+              </div>
+            `;
+            bookListUl.appendChild(li);
+          });
+        }
+
+        async function fetchBooks() {
+          try {
+            bookListUl.innerHTML = "<li>Loading books...</li>";
+            const response = await fetch(booksApiUrl);
+            if (!response.ok)
+              throw new Error(`HTTP error! status: ${response.status}`);
+            const books = await response.json();
+            renderBooks(books);
+          } catch (error) {
+            showMessage(
+              "Failed to load books. Make sure the API server is running.",
+              "error",
+            );
+            bookListUl.innerHTML =
+              "<li>Error loading books. Check console and ensure API is running.</li>";
+          }
+        }
+
+        function resetForm() {
+          bookForm.reset();
+          bookIdInput.value = "";
+          currentImageText.textContent = "";
+          coverImageInput.value = "";
+          submitButton.textContent = "Add Book";
+          cancelEditButton.style.display = "none";
+          titleInput.focus();
+        }
+
+        bookForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          const formData = new FormData(bookForm);
+          const currentBookId = bookIdInput.value;
+
+          const url = currentBookId
+            ? `${booksApiUrl}/${currentBookId}`
+            : booksApiUrl;
+          const method = currentBookId ? "PUT" : "POST";
+
+          try {
+            const response = await fetch(url, { method, body: formData });
+            const responseBody = await response.json();
+            if (!response.ok)
+              throw new Error(
+                responseBody.error ||
+                  `Operation failed with status: ${response.status}`,
+              );
+            showMessage(
+              `Book ${currentBookId ? "updated" : "created"} successfully!`,
+            );
+            resetForm();
+            fetchBooks();
+          } catch (error) {
+            showMessage(
+              error.message ||
+                `Failed to ${currentBookId ? "update" : "create"} book.`,
+              "error",
+            );
+          }
+        });
+
+        async function populateEditForm(bookId) {
+          try {
+            const response = await fetch(`${booksApiUrl}/${bookId}`);
+            if (!response.ok)
+              throw new Error("Failed to fetch book details for editing.");
+            const book = await response.json();
+
+            bookIdInput.value = book._id;
+            titleInput.value = book.title;
+            authorInput.value = book.author;
+            yearInput.value = book.year || "";
+            coverImageInput.value = "";
+
+            currentImageText.textContent = book.coverImage
+              ? `Current image: ${book.coverImage.split("/").pop()}. Select a new file to change it.`
+              : "No current image. Select a file to add one.";
+
+            submitButton.textContent = "Update Book";
+            cancelEditButton.style.display = "inline-block";
+            window.scrollTo({
+              top: bookForm.offsetTop - 20,
+              behavior: "smooth",
+            });
+            titleInput.focus();
+          } catch (error) {
+            showMessage(error.message, "error");
+          }
+        }
+
+        async function deleteBook(bookId) {
+          if (
+            !confirm(
+              "Are you sure you want to delete this book? This action cannot be undone.",
+            )
+          )
+            return;
+          try {
+            const response = await fetch(`${booksApiUrl}/${bookId}`, {
+              method: "DELETE",
+            });
+            const responseBody = await response.json();
+            if (!response.ok)
+              throw new Error(
+                responseBody.error ||
+                  `Failed to delete book (status: ${response.status})`,
+              );
+            showMessage(responseBody.message || "Book deleted successfully!");
+            fetchBooks();
+          } catch (error) {
+            showMessage(error.message || "Failed to delete book.", "error");
+          }
+        }
+
+        bookListUl.addEventListener("click", (event) => {
+          const targetButton = event.target.closest("button");
+          if (!targetButton) return;
+
+          const bookId = targetButton.dataset.id;
+          if (targetButton.classList.contains("edit-btn")) {
+            populateEditForm(bookId);
+          } else if (targetButton.classList.contains("delete-btn")) {
+            deleteBook(bookId);
+          }
+        });
+
+        cancelEditButton.addEventListener("click", resetForm);
+
+        fetchBooks();
+      });
+    </script>
+  </body>
+</html>
