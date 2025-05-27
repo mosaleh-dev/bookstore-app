@@ -5,18 +5,25 @@ const bookSchema = new mongoose.Schema(
     title: {
       type: String,
       required: true,
+      trim: true,
     },
     author: {
       type: String,
       required: true,
+      trim: true,
     },
     year: {
       type: Number,
       required: false,
     },
     coverImage: {
-      type: String, // Stores the path to the image, e.g., "uploads/coverImage-12345.jpg"
+      type: String,
       required: false,
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
   },
   { timestamps: true },

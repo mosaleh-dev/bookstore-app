@@ -1,325 +1,487 @@
+// ./app.test.js
 import { describe, it, expect, beforeEach, afterAll, beforeAll } from "vitest";
 import request from "supertest";
-import app from "./app.js";
-import { Book } from "./models/book.js";
+import app from "./app.js"; // Your Express app
 import mongoose from "mongoose";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { User } from "./models/user.js";
+import { Book } from "./models/book.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const projectRoot = __dirname;
+const projectRoot = __dirname; // Assuming app.test.js is in the project root
 const uploadsDir = path.join(projectRoot, "uploads");
-const testAssetsDir = path.join(__dirname, "test-assets");
-const testAssetImageName = "dummy-cover.png";
-const testAssetImagePath = path.join(testAssetsDir, testAssetImageName);
+const testAssetsDir = path.join(projectRoot, "test-assets");
+const testImageName = "test-cover.png";
+const testImagePath = path.join(testAssetsDir, testImageName);
 
-const initialBooksData = [
-  { title: "The Prophet", author: "Kahlil Gibran", year: 1923 },
-  {
-    title: "Season of Migration to the North",
-    author: "Tayeb Salih",
-    year: 1966,
-  },
-  { title: "Palace Walk", author: "Naguib Mahfouz", year: 1956 },
-  { title: "Cities of Salt", author: "Abdul Rahman Munif", year: 1984 },
-];
+// Helper function to register and login a user
+async function registerAndLogin(userData) {
+  // Register user
+  await request(app).post("/auth/register").send(userData);
+
+  // Login user
+  const loginResponse = await request(app).post("/auth/login").send({
+    username: userData.username,
+    password: userData.password,
+  });
+  expect(loginResponse.status).toBe(200);
+  expect(loginResponse.body.token).toBeDefined();
+  return {
+    token: loginResponse.body.token,
+    userId: loginResponse.body.userId,
+    role: loginResponse.body.role,
+  };
+}
 
 beforeAll(async () => {
+  // Ensure test directories exist
   if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
   }
   if (!fs.existsSync(testAssetsDir)) {
     fs.mkdirSync(testAssetsDir, { recursive: true });
   }
-  fs.writeFileSync(testAssetImagePath, "dummy image content for testing");
+  // Create a dummy image file for testing uploads
+  if (!fs.existsSync(testImagePath)) {
+    fs.writeFileSync(testImagePath, "dummy image content for testing");
+  }
 });
 
 beforeEach(async () => {
+  // Clear database collections
+  await User.deleteMany({});
   await Book.deleteMany({});
-  await Book.insertMany(initialBooksData);
-  const filesInUploads = fs.readdirSync(uploadsDir);
-  for (const file of filesInUploads) {
-    try {
-      fs.unlinkSync(path.join(uploadsDir, file));
-    } catch (err) {
-      console.warn(`Could not delete file ${file} during cleanup: ${err}`);
-    }
-  }
-});
 
-afterAll(async () => {
-  await mongoose.connection.close();
-  if (fs.existsSync(testAssetImagePath)) {
-    fs.unlinkSync(testAssetImagePath);
-  }
-  if (
-    fs.existsSync(testAssetsDir) &&
-    fs.readdirSync(testAssetsDir).length === 0
-  ) {
-    fs.rmdirSync(testAssetsDir);
-  }
+  // Clear uploads directory
   const filesInUploads = fs.readdirSync(uploadsDir);
   for (const file of filesInUploads) {
     try {
       fs.unlinkSync(path.join(uploadsDir, file));
     } catch (err) {
       console.warn(
-        `Could not delete file ${file} during final cleanup: ${err}`,
+        `Could not delete file ${file} during beforeEach cleanup: ${err.message}`,
       );
     }
   }
 });
 
-describe("Bookstore App API CRUD Tests", () => {
-  it("GET /books should return all books", async () => {
-    const response = await request(app).get("/books");
-    expect(response.status).toBe(200);
-    expect(response.headers["content-type"]).toContain("application/json");
-    expect(response.body).toBeInstanceOf(Array);
-    expect(response.body.length).toBe(initialBooksData.length);
-    response.body.forEach((book) => {
-      expect(book).toHaveProperty("_id");
-      expect(book).toHaveProperty("title");
-      expect(book).toHaveProperty("author");
-    });
+afterAll(async () => {
+  // Clean up test assets
+  if (fs.existsSync(testImagePath)) {
+    try {
+      fs.unlinkSync(testImagePath);
+    } catch (err) {
+      console.warn(
+        `Could not delete test image ${testImagePath}: ${err.message}`,
+      );
+    }
+  }
+  if (
+    fs.existsSync(testAssetsDir) &&
+    fs.readdirSync(testAssetsDir).length === 0
+  ) {
+    try {
+      fs.rmdirSync(testAssetsDir);
+    } catch (err) {
+      console.warn(
+        `Could not remove test assets dir ${testAssetsDir}: ${err.message}`,
+      );
+    }
+  }
+  // Keep uploads directory for next runs, but it should be empty due to beforeEach
+
+  // Close MongoDB connection
+  await mongoose.connection.close();
+});
+
+describe("Authentication API", () => {
+  it("POST /auth/register - should register a new user successfully", async () => {
+    const res = await request(app)
+      .post("/auth/register")
+      .send({ username: "testuser", password: "password123" });
+    expect(res.status).toBe(201);
+    expect(res.body.message).toBe("User registered successfully");
+    expect(res.body.userId).toBeDefined();
   });
 
-  it("GET /books/:id should return a specific book for a valid ID", async () => {
-    const book = await Book.findOne({ title: "The Prophet" });
-    const validBookId = book._id.toString();
-    const response = await request(app).get(`/books/${validBookId}`);
-    expect(response.status).toBe(200);
-    expect(response.headers["content-type"]).toContain("application/json");
-    expect(response.body).toHaveProperty("_id", validBookId);
-    expect(response.body).toHaveProperty("title", "The Prophet");
+  it("POST /auth/register - should fail to register with an existing username", async () => {
+    await request(app)
+      .post("/auth/register")
+      .send({ username: "testuser", password: "password123" }); // First registration
+    const res = await request(app)
+      .post("/auth/register")
+      .send({ username: "testuser", password: "password456" }); // Second attempt
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("Username already exists.");
   });
 
-  it("GET /books/:id should return 404 for a non-existent book ID", async () => {
-    const nonExistentId = new mongoose.Types.ObjectId().toString();
-    const response = await request(app).get(`/books/${nonExistentId}`);
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ error: "Book not found" });
-  });
-
-  it("GET /books/:id should return 400 for an invalid ID format", async () => {
-    const invalidBookId = "not-a-valid-mongoose-id";
-    const response = await request(app).get(`/books/${invalidBookId}`);
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ error: "Invalid Book ID format" });
-  });
-
-  it("POST /books should create a new book with title, author, and year", async () => {
-    const newBookData = {
-      title: "A New Book Title DB",
-      author: "A New Author DB",
-      year: "2024",
-    };
-    const initialCount = await Book.countDocuments();
-    const response = await request(app)
-      .post("/books")
-      .field("title", newBookData.title)
-      .field("author", newBookData.author)
-      .field("year", newBookData.year)
-      .set("Accept", "application/json");
-    expect(response.status).toBe(201);
-    expect(response.headers["content-type"]).toContain("application/json");
-    expect(response.body).toHaveProperty("_id");
-    expect(response.body).toHaveProperty("title", newBookData.title);
-    expect(response.body).toHaveProperty("author", newBookData.author);
-    expect(response.body).toHaveProperty("year", parseInt(newBookData.year));
-    const finalCount = await Book.countDocuments();
-    expect(finalCount).toBe(initialCount + 1);
-    const createdBook = await Book.findById(response.body._id);
-    expect(createdBook).toBeTruthy();
-    expect(createdBook.title).toBe(newBookData.title);
-  });
-
-  it("POST /books should create a new book with an uploaded cover image", async () => {
-    const newBookData = {
-      title: "Book With Image",
-      author: "Author Img",
-      year: "2023",
-    };
-    const initialCount = await Book.countDocuments();
-    const response = await request(app)
-      .post("/books")
-      .field("title", newBookData.title)
-      .field("author", newBookData.author)
-      .field("year", newBookData.year)
-      .attach("coverImage", testAssetImagePath)
-      .set("Accept", "application/json");
-    expect(response.status).toBe(201);
-    expect(response.body.title).toBe(newBookData.title);
-    expect(response.body.year).toBe(parseInt(newBookData.year));
-    expect(response.body).toHaveProperty("coverImage");
-    expect(response.body.coverImage).toMatch(
-      /^uploads[\\/]coverImage-\d+\.(png|jpg|jpeg|gif)$/i,
+  it("POST /auth/register - should fail with validation errors (e.g., short password)", async () => {
+    const res = await request(app)
+      .post("/auth/register")
+      .send({ username: "newuser", password: "123" });
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toBeInstanceOf(Array);
+    expect(res.body.errors[0].msg).toContain(
+      "Password must be at least 6 characters long",
     );
-    const imageDiskPath = path.join(projectRoot, response.body.coverImage);
-    expect(fs.existsSync(imageDiskPath)).toBe(true);
-    const finalCount = await Book.countDocuments();
-    expect(finalCount).toBe(initialCount + 1);
-    const dbBook = await Book.findById(response.body._id);
-    expect(dbBook.coverImage).toBe(response.body.coverImage);
   });
 
-  it("POST /books should create a new book without year", async () => {
-    const newBookData = { title: "Book Without Year", author: "Author C" };
-    const initialCount = await Book.countDocuments();
-    const response = await request(app)
-      .post("/books")
-      .field("title", newBookData.title)
-      .field("author", newBookData.author)
-      .set("Accept", "application/json");
-    expect(response.status).toBe(201);
-    expect(response.body).toHaveProperty("title", newBookData.title);
-    expect(response.body).not.toHaveProperty("year");
-    const finalCount = await Book.countDocuments();
-    expect(finalCount).toBe(initialCount + 1);
+  it("POST /auth/login - should login an existing user and return a token", async () => {
+    await request(app)
+      .post("/auth/register")
+      .send({ username: "loginuser", password: "password123" });
+    const res = await request(app)
+      .post("/auth/login")
+      .send({ username: "loginuser", password: "password123" });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toBe("Login successful");
+    expect(res.body.token).toBeDefined();
+    expect(res.body.userId).toBeDefined();
+    expect(res.body.role).toBe("user");
   });
 
-  it("POST /books should return 400 if required fields are missing", async () => {
-    const response = await request(app)
-      .post("/books")
-      .field("author", "No Title Author DB")
-      .set("Accept", "application/json");
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: "Missing required fields: title, author",
+  it("POST /auth/login - should fail with incorrect credentials", async () => {
+    await request(app)
+      .post("/auth/register")
+      .send({ username: "loginuser", password: "password123" });
+    const res = await request(app)
+      .post("/auth/login")
+      .send({ username: "loginuser", password: "wrongpassword" });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBe("Invalid credentials.");
+  });
+});
+
+describe("Book CRUD API", () => {
+  let regularUser, adminUser;
+  let regularUserBook;
+
+  beforeEach(async () => {
+    regularUser = await registerAndLogin({
+      username: "testuser",
+      password: "password123",
     });
-  });
-
-  it("POST /books should return 400 if year is not a number", async () => {
-    const response = await request(app)
-      .post("/books")
-      .field("title", "Title DB")
-      .field("author", "Author DB")
-      .field("year", "not-a-number")
-      .set("Accept", "application/json");
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: "Year must be a number if provided",
-    });
-  });
-
-  it("PUT /books/:id should update an existing book's text fields and add a cover image", async () => {
-    const bookToUpdate = await Book.findOne({
-      title: "Season of Migration to the North",
-    });
-    const bookToUpdateId = bookToUpdate._id.toString();
-    const updatedData = {
-      title: "Season of Migration to the South (with Image)",
-      year: "2001",
+    // Manually create an admin user in DB for testing admin routes
+    const adminData = {
+      username: "admin",
+      password: "password123",
+      role: "admin",
     };
-    const response = await request(app)
-      .put(`/books/${bookToUpdateId}`)
-      .field("title", updatedData.title)
-      .field("year", updatedData.year)
-      .attach("coverImage", testAssetImagePath)
-      .set("Accept", "application/json");
-    expect(response.status).toBe(200);
-    expect(response.body.title).toBe(updatedData.title);
-    expect(response.body.year).toBe(parseInt(updatedData.year));
-    expect(response.body.author).toBe(bookToUpdate.author);
-    expect(response.body).toHaveProperty("coverImage");
-    expect(response.body.coverImage).toMatch(
-      /^uploads[\\/]coverImage-\d+\.(png|jpg|jpeg|gif)$/i,
-    );
-    const imageDiskPath = path.join(projectRoot, response.body.coverImage);
-    expect(fs.existsSync(imageDiskPath)).toBe(true);
-    const getResponse = await request(app).get(`/books/${bookToUpdateId}`);
-    expect(getResponse.body.title).toBe(updatedData.title);
-    expect(getResponse.body.year).toBe(parseInt(updatedData.year));
-    expect(getResponse.body.coverImage).toBe(response.body.coverImage);
-  });
+    await User.create(adminData); // Password will be hashed by pre-save hook
+    const adminLoginRes = await request(app)
+      .post("/auth/login")
+      .send({ username: "admin", password: "password123" });
+    adminUser = {
+      token: adminLoginRes.body.token,
+      userId: adminLoginRes.body.userId,
+      role: adminLoginRes.body.role,
+    };
 
-  it("PUT /books/:id should update text fields without changing existing cover image if no new image is uploaded", async () => {
-    const initialPostResponse = await request(app)
+    // Create a book for the regular user
+    const bookRes = await request(app)
       .post("/books")
-      .field("title", "Book With An Image")
-      .field("author", "Image Author")
-      .attach("coverImage", testAssetImagePath);
-    expect(initialPostResponse.status).toBe(201);
-    const bookId = initialPostResponse.body._id;
-    const originalCoverImage = initialPostResponse.body.coverImage;
-    expect(originalCoverImage).toBeDefined();
-    const updatedTextData = { title: "Book With An Image (Title Updated)" };
-    const putResponse = await request(app)
-      .put(`/books/${bookId}`)
-      .field("title", updatedTextData.title)
-      .set("Accept", "application/json");
-    expect(putResponse.status).toBe(200);
-    expect(putResponse.body.title).toBe(updatedTextData.title);
-    expect(putResponse.body.author).toBe("Image Author");
-    expect(putResponse.body.coverImage).toBe(originalCoverImage);
-    const imageDiskPath = path.join(projectRoot, originalCoverImage);
-    expect(fs.existsSync(imageDiskPath)).toBe(true);
+      .set("Authorization", `Bearer ${regularUser.token}`)
+      .field("title", "User's First Book")
+      .field("author", "Test User")
+      .field("year", "2023");
+    expect(bookRes.status).toBe(201);
+    regularUserBook = bookRes.body;
   });
 
-  it("PUT /books/:id should return 404 for a non-existent book ID", async () => {
-    const nonExistentId = new mongoose.Types.ObjectId().toString();
-    const response = await request(app)
-      .put(`/books/${nonExistentId}`)
-      .field("title", "Should Not Update")
-      .set("Accept", "application/json");
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ error: "Book not found" });
-  });
+  describe("POST /books", () => {
+    it("should create a new book with title, author, and year (with image)", async () => {
+      const res = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "My New Book with Image")
+        .field("author", "Test Author")
+        .field("year", "2024")
+        .attach("coverImage", testImagePath);
 
-  it("PUT /books/:id should return 400 for an invalid ID format", async () => {
-    const response = await request(app)
-      .put("/books/another-invalid-id")
-      .field("title", "Should Not Update");
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ error: "Invalid Book ID format" });
-  });
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBe("My New Book with Image");
+      expect(res.body.author).toBe("Test Author");
+      expect(res.body.year).toBe(2024);
+      expect(res.body.createdBy).toBe(regularUser.userId);
+      expect(res.body.coverImage).toMatch(/^uploads[\\/]coverImage-\d+\.png$/);
+      expect(fs.existsSync(path.join(projectRoot, res.body.coverImage))).toBe(
+        true,
+      );
+    });
 
-  it("PUT /books/:id should return 400 if year is not a number", async () => {
-    const bookToUpdate = await Book.findOne({});
-    const bookToUpdateId = bookToUpdate._id.toString();
-    const response = await request(app)
-      .put(`/books/${bookToUpdateId}`)
-      .field("year", "bad-year-format")
-      .set("Accept", "application/json");
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      error: "Year must be a number if provided",
+    it("should create a new book without year and without image", async () => {
+      const res = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "Book No Year No Image")
+        .field("author", "Another Author");
+
+      expect(res.status).toBe(201);
+      expect(res.body.title).toBe("Book No Year No Image");
+      expect(res.body).not.toHaveProperty("year");
+      expect(res.body).not.toHaveProperty("coverImage");
+      expect(res.body.createdBy).toBe(regularUser.userId);
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app)
+        .post("/books")
+        .field("title", "Unauthorized Book")
+        .field("author", "No User");
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 400 for missing required fields (e.g., title)", async () => {
+      const res = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("author", "Author Only");
+      expect(res.status).toBe(400);
+      expect(res.body.errors[0].path).toBe("title");
     });
   });
 
-  it("DELETE /books/:id should delete an existing book", async () => {
-    const bookToDelete = await Book.findOne({ title: "Palace Walk" });
-    const bookToDeleteId = bookToDelete._id.toString();
-    const initialCount = await Book.countDocuments();
-    const response = await request(app).delete(`/books/${bookToDeleteId}`);
-    expect(response.status).toBe(200);
-    expect(response.body.message).toBe("Book deleted successfully");
-    expect(response.body.deletedBook._id).toBe(bookToDeleteId);
-    const finalCount = await Book.countDocuments();
-    expect(finalCount).toBe(initialCount - 1);
-    const getResponse = await request(app).get(`/books/${bookToDeleteId}`);
-    expect(getResponse.status).toBe(404);
+  describe("GET /books", () => {
+    it("regular user should get only their own books", async () => {
+      // Create a book for admin to ensure it's not fetched by regular user
+      await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Book")
+        .field("author", "Admin User");
+
+      const res = await request(app)
+        .get("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBe(1); // Only regularUserBook
+      expect(res.body[0].title).toBe("User's First Book");
+      expect(res.body[0].createdBy.username).toBe("testuser");
+    });
+
+    it("admin user should get all books", async () => {
+      await request(app) // Admin creates one more book
+        .post("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Book")
+        .field("author", "Admin User");
+
+      const res = await request(app)
+        .get("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.length).toBe(2); // regularUserBook + Admin's Book
+      const titles = res.body.map((b) => b.title);
+      expect(titles).toContain("User's First Book");
+      expect(titles).toContain("Admin's Book");
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app).get("/books");
+      expect(res.status).toBe(401);
+    });
   });
 
-  it("DELETE /books/:id should return 404 for a non-existent book ID", async () => {
-    const nonExistentId = new mongoose.Types.ObjectId().toString();
-    const response = await request(app).delete(`/books/${nonExistentId}`);
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ error: "Book not found" });
+  describe("GET /books/:id", () => {
+    it("regular user should get their own book by ID", async () => {
+      const res = await request(app)
+        .get(`/books/${regularUserBook._id}`)
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe(regularUserBook.title);
+    });
+
+    it("regular user should get 404 (or 403) for another user's book ID", async () => {
+      const adminBookRes = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Secret Book")
+        .field("author", "Admin");
+      const adminBookId = adminBookRes.body._id;
+
+      const res = await request(app)
+        .get(`/books/${adminBookId}`)
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      // Service returns null, controller returns 404 if book not found or access denied
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe("Book not found or access denied");
+    });
+
+    it("admin should get any book by ID", async () => {
+      const res = await request(app)
+        .get(`/books/${regularUserBook._id}`)
+        .set("Authorization", `Bearer ${adminUser.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe(regularUserBook.title);
+    });
+
+    it("should return 400 for invalid book ID format", async () => {
+      const res = await request(app)
+        .get("/books/invalid-id-format")
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe("Invalid Book ID format");
+    });
+
+    it("should return 404 for non-existent book ID", async () => {
+      const nonExistentId = new mongoose.Types.ObjectId().toString();
+      const res = await request(app)
+        .get(`/books/${nonExistentId}`)
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      expect(res.status).toBe(404);
+    });
   });
 
-  it("DELETE /books/:id should return 400 for an invalid ID format", async () => {
-    const response = await request(app).delete("/books/totally-invalid-id");
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ error: "Invalid Book ID format" });
+  describe("PUT /books/:id", () => {
+    it("regular user should update their own book (text fields)", async () => {
+      const res = await request(app)
+        .put(`/books/${regularUserBook._id}`)
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "User's Updated Title")
+        .field("year", "2025");
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe("User's Updated Title");
+      expect(res.body.year).toBe(2025);
+      expect(res.body.author).toBe(regularUserBook.author); // Author should remain
+    });
+
+    it("regular user should update their own book (add cover image)", async () => {
+      const res = await request(app)
+        .put(`/books/${regularUserBook._id}`)
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "Title with New Image")
+        .attach("coverImage", testImagePath);
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe("Title with New Image");
+      expect(res.body.coverImage).toMatch(/^uploads[\\/]coverImage-\d+\.png$/);
+      expect(fs.existsSync(path.join(projectRoot, res.body.coverImage))).toBe(
+        true,
+      );
+    });
+
+    it("regular user should update their own book (remove cover image)", async () => {
+      // First, add an image
+      const bookWithImageRes = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "Book to Remove Image From")
+        .field("author", "Image Test Author")
+        .attach("coverImage", testImagePath);
+      const bookWithImageId = bookWithImageRes.body._id;
+      const originalImagePath = bookWithImageRes.body.coverImage;
+      expect(fs.existsSync(path.join(projectRoot, originalImagePath))).toBe(
+        true,
+      );
+
+      // Now, remove the image
+      const res = await request(app)
+        .put(`/books/${bookWithImageId}`)
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("coverImage", "");
+      console.log({ ...res });
+      expect(res.status).toBe(200);
+      expect(res.body.coverImage).toBeNull();
+      expect(fs.existsSync(path.join(projectRoot, originalImagePath))).toBe(
+        false,
+      );
+    });
+
+    it("regular user should fail to update another user's book (403)", async () => {
+      const adminBookRes = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Book to Protect")
+        .field("author", "Admin");
+      const adminBookId = adminBookRes.body._id;
+
+      const res = await request(app)
+        .put(`/books/${adminBookId}`)
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "Attempted Update by User");
+      expect(res.status).toBe(403); // Access Denied: You do not own this book.
+      expect(res.body.error).toContain("Access Denied");
+    });
+
+    it("admin user should be able to update their own book", async () => {
+      const adminBookRes = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Own Book")
+        .field("author", "Admin");
+      const adminBookId = adminBookRes.body._id;
+
+      const res = await request(app)
+        .put(`/books/${adminBookId}`)
+        .set("Authorization", `Bearer ${adminUser.token}`)
+        .field("title", "Admin's Updated Own Book");
+      expect(res.status).toBe(200);
+      expect(res.body.title).toBe("Admin's Updated Own Book");
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app)
+        .put(`/books/${regularUserBook._id}`)
+        .field("title", "Unauthorized Update");
+      expect(res.status).toBe(401);
+    });
   });
 
-  it("GET /nonexistent-route should return 404", async () => {
-    const response = await request(app).get("/nonexistent-route");
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ error: "Route not found" });
+  describe("DELETE /books/:id", () => {
+    it("admin user should delete any book (e.g., regular user's book)", async () => {
+      // Add an image to the book to test file deletion
+      const bookWithImage = await request(app)
+        .post("/books")
+        .set("Authorization", `Bearer ${regularUser.token}`)
+        .field("title", "Book to Delete")
+        .field("author", "Test User")
+        .attach("coverImage", testImagePath);
+      expect(bookWithImage.status).toBe(201);
+      const bookIdToDelete = bookWithImage.body._id;
+      const imagePathToDelete = bookWithImage.body.coverImage;
+      expect(fs.existsSync(path.join(projectRoot, imagePathToDelete))).toBe(
+        true,
+      );
+
+      const res = await request(app)
+        .delete(`/books/${bookIdToDelete}`)
+        .set("Authorization", `Bearer ${adminUser.token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.message).toBe("Book deleted successfully");
+      expect(res.body.deletedBook._id).toBe(bookIdToDelete);
+
+      // Verify book is deleted from DB
+      const findRes = await Book.findById(bookIdToDelete);
+      expect(findRes).toBeNull();
+      // Verify image file is deleted
+      expect(fs.existsSync(path.join(projectRoot, imagePathToDelete))).toBe(
+        false,
+      );
+    });
+
+    it("regular user should fail to delete a book (403)", async () => {
+      const res = await request(app)
+        .delete(`/books/${regularUserBook._id}`)
+        .set("Authorization", `Bearer ${regularUser.token}`);
+      expect(res.status).toBe(403); // Forbidden by authorizeMiddleware
+      expect(res.body.error).toContain("Forbidden");
+    });
+
+    it("should return 401 if not authenticated", async () => {
+      const res = await request(app).delete(`/books/${regularUserBook._id}`);
+      expect(res.status).toBe(401);
+    });
+
+    it("should return 404 if admin tries to delete a non-existent book", async () => {
+      const nonExistentId = new mongoose.Types.ObjectId().toString();
+      const res = await request(app)
+        .delete(`/books/${nonExistentId}`)
+        .set("Authorization", `Bearer ${adminUser.token}`);
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe("Book not found");
+    });
   });
 });

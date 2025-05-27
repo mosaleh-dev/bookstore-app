@@ -9,7 +9,8 @@ import { fileURLToPath } from "url";
 dotenv.config();
 
 import requestLogger from "./middleware/requestLogger.js";
-import booksRouter from "./routes/books.js";
+import bookRoutes from "./routes/bookRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +18,14 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 const MONGODB_URI = process.env.MONGODB_URI;
+if (!MONGODB_URI) {
+  console.error("FATAL ERROR: MONGODB_URI is not defined.");
+  process.exit(1);
+}
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL ERROR: JWT_SECRET is not defined.");
+  process.exit(1);
+}
 
 const UPLOADS_DIR = path.join(__dirname, "uploads");
 if (!fs.existsSync(UPLOADS_DIR)) {
@@ -38,7 +47,9 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use("/uploads", express.static(UPLOADS_DIR));
-app.use("/books", booksRouter);
+
+app.use("/auth", authRoutes);
+app.use("/books", bookRoutes);
 
 app.get("/", (req, res) => {
   const indexPath = path.join(__dirname, "index.html");
@@ -52,6 +63,12 @@ app.use((req, res) => {
 
 app.use((err, req, res, next) => {
   console.error("[App] Unhandled error:", err);
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(400).json({ error: "File too large." });
+  }
+  if (err.code === "LIMIT_UNEXPECTED_FILE") {
+    return res.status(400).json({ error: "Unexpected file field." });
+  }
   res.status(500).json({ error: "Something went wrong!" });
 });
 
