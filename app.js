@@ -55,6 +55,7 @@ app.get("/", (req, res) => {
   const indexPath = path.join(__dirname, "index.html");
   res.sendFile(indexPath);
 });
+app.use("/tests", express.static(path.join(__dirname, "./html")));
 
 app.use((req, res) => {
   console.warn(`[App] 404 Not Found: ${req.method} ${req.originalUrl}`);
