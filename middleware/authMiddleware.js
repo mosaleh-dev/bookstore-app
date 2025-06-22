@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { User } from "../models/user.js";
+import process from "node:process";
 
 export const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;

@@ -1,6 +1,6 @@
 import express from "express";
 import multer from "multer";
-import path from "path";
+import path from "node:path";
 import {
   getAllBooksController,
   getBookByIdController,
@@ -15,6 +15,7 @@ import {
   validateBookUpdate,
 } from "../middleware/validationRules.js";
 import { handleValidationErrors } from "../middleware/validationResultHandler.js";
+import process from "node:process";
 
 const router = express.Router();
 

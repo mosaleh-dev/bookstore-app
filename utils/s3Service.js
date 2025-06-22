@@ -7,6 +7,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import pathNode from "path";
 import dotenv from "dotenv";
+import process from "node:process";
 
 dotenv.config();
 

@@ -1,7 +1,7 @@
 import { Book } from "../models/book.js";
 import { User } from "../models/user.js";
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import mongoose from "mongoose";
 
 export const createBook = async (bookData, userId) => {

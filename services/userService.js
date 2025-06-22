@@ -1,5 +1,6 @@
 import { User } from "../models/user.js";
 import jwt from "jsonwebtoken";
+import process from "node:process";
 
 export const registerUser = async (username, password) => {
   if (!username || !password) {
