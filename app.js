@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import morgan from "morgan";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
@@ -42,6 +43,7 @@ mongoose
     process.exit(1);
   });
 
+app.use(cors());
 app.use(morgan("dev"));
 app.use(requestLogger);
 app.use(express.json());
