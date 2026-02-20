@@ -43,7 +43,11 @@ mongoose
     process.exit(1);
   });
 
-app.use(cors());
+const corsOptions = {
+  origin: process.env.ALLOWED_ORIGINS?.split(",") || "http://localhost:3000",
+  credentials: true,
+};
+app.use(cors(corsOptions));
 app.use(morgan("dev"));
 app.use(requestLogger);
 app.use(express.json());
